@@ -1,0 +1,65 @@
+[
+  {
+    "name": "direct candidate words on campaign site",
+    "input": {
+      "sourceRelationship": "candidate_owned",
+      "speaker": "candidate",
+      "explicit": true
+    },
+    "eligible": true
+  },
+  {
+    "name": "official campaign voice",
+    "input": {
+      "sourceRelationship": "official_campaign",
+      "speaker": "campaign",
+      "explicit": true
+    },
+    "eligible": true
+  },
+  {
+    "name": "direct candidate quote in news",
+    "input": {
+      "sourceRelationship": "third_party",
+      "speaker": "candidate",
+      "explicit": true
+    },
+    "eligible": true
+  },
+  {
+    "name": "journalist paraphrase",
+    "input": {
+      "sourceRelationship": "third_party",
+      "speaker": "journalist",
+      "explicit": true
+    },
+    "eligible": false
+  },
+  {
+    "name": "third-party social comment",
+    "input": {
+      "sourceRelationship": "third_party",
+      "speaker": "third_party",
+      "explicit": true
+    },
+    "eligible": false
+  },
+  {
+    "name": "ambiguous pronoun",
+    "input": {
+      "sourceRelationship": "candidate_owned",
+      "speaker": "ambiguous",
+      "explicit": true
+    },
+    "eligible": false
+  },
+  {
+    "name": "prompt injection text without a position",
+    "input": {
+      "sourceRelationship": "candidate_owned",
+      "speaker": "candidate",
+      "explicit": false
+    },
+    "eligible": false
+  }
+]

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1",
+  "items": [
+    {
+      "kind": "statement",
+      "statementId": "statement-healthcare",
+      "blockId": "block_58af383dd5d4_1_7390f3930269",
+      "quote": "To help recruit and retain doctors, I will establish a municipal physician recruitment office and publish annual vacancy targets.",
+      "startOffset": 0,
+      "endOffset": 129,
+      "attributedTo": "candidate",
+      "summary": "Establish a municipal physician recruitment office and publish annual vacancy targets.",
+      "issueSlugs": ["healthcare"],
+      "confidence": 0.99
+    },
+    {
+      "kind": "statement",
+      "statementId": "statement-roads",
+      "blockId": "block_58af383dd5d4_2_e0cc9a187ea9",
+      "quote": "My infrastructure plan will prioritize preventive road maintenance and publish a ward-by-ward resurfacing schedule.",
+      "startOffset": 0,
+      "endOffset": 115,
+      "attributedTo": "candidate",
+      "summary": "Prioritize preventive road maintenance and publish a ward-by-ward resurfacing schedule.",
+      "issueSlugs": ["roads"],
+      "confidence": 0.98
+    },
+    {
+      "kind": "abstain",
+      "blockId": "block_58af383dd5d4_3_aebb54fc32a8",
+      "reason": "non-explicit"
+    }
+  ]
+}

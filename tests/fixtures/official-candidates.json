@@ -1,0 +1,29 @@
+{
+  "municipality": {
+    "id": "municipality_chatham_kent",
+    "slug": "chatham-kent",
+    "name": "Chatham-Kent"
+  },
+  "election": {
+    "id": "election_chatham_kent_2026",
+    "name": "2026 Municipal Election",
+    "electionDate": "2026-10-26"
+  },
+  "office": {
+    "id": "office_chatham_kent_2026_mayor",
+    "officeType": "mayor",
+    "name": "Mayor",
+    "wardSlug": null
+  },
+  "person": {
+    "id": "person_demo",
+    "displayName": "Alex Morgan"
+  },
+  "candidacy": {
+    "id": "candidacy_demo_2026_mayor",
+    "slug": "demo-candidate",
+    "status": "registered",
+    "upstreamKey": "fixture:demo-candidate"
+  },
+  "observedAt": "2026-07-24T16:00:00.000Z"
+}
