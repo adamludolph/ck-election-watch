@@ -15,6 +15,36 @@ export class CandidateImportValidationError extends PipelineError {
   }
 }
 
+export class OfficialImportValidationError extends PipelineError {
+  constructor(message: string, cause?: unknown) {
+    super("official_import_validation", message, { cause });
+  }
+}
+
+export class OfficialImportConflictError extends PipelineError {
+  constructor(message: string) {
+    super("official_import_conflict", message);
+  }
+}
+
+export class DiscoveryValidationError extends PipelineError {
+  constructor(message: string, cause?: unknown) {
+    super("discovery_validation", message, { cause });
+  }
+}
+
+export class DiscoveryTransitionError extends PipelineError {
+  constructor(message: string) {
+    super("discovery_transition", message);
+  }
+}
+
+export class DiscoverySourceConflictError extends PipelineError {
+  constructor(message: string) {
+    super("discovery_source_conflict", message);
+  }
+}
+
 export class SourceCaptureValidationError extends PipelineError {
   constructor(message: string, cause?: unknown) {
     super("source_capture_validation", message, { cause });
@@ -48,5 +78,11 @@ export class PublicationPolicyError extends PipelineError {
 export class DatabasePreparationError extends PipelineError {
   constructor(message: string, cause?: unknown) {
     super("database_preparation", message, { cause });
+  }
+}
+
+export class MigrationIntegrityError extends PipelineError {
+  constructor(message: string) {
+    super("migration_integrity", message);
   }
 }

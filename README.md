@@ -2,7 +2,8 @@
 
 A neutral, evidence-first local proof for the 2026 Chatham-Kent municipal
 election. It demonstrates one complete path from saved public campaign material
-to an immutable, evidence-backed candidate statement.
+to an immutable, evidence-backed candidate statement, preceded by a preserved
+official roster import and an explicitly reviewed source discovery.
 
 The included candidacy and campaign text are synthetic. No live website, model
 API, credential, or production database is used.
@@ -49,13 +50,22 @@ npm run test:e2e
 ## What the slice proves
 
 - election-scoped candidacy import is idempotent;
+- exact official roster bytes, their hash, source, observation time, and linked
+  candidacy-status observations are preserved;
+- official person keys are reconciled across later imports, and one status
+  observation cannot silently claim provenance from two import runs;
+- discovery records remain proposed until an explicit accept/reject decision,
+  and only an accepted candidate-owned website becomes capturable;
+- candidate-owned links are canonical credential-free HTTP(S) URLs, and fixture
+  capture cannot substitute an unrelated original URL;
 - a saved HTML source produces immutable raw bytes, a SHA-256 snapshot, and
   stable normalized blocks;
 - structured extraction must bind an exact quote and UTF-16 offsets to a block;
 - source ownership and attribution policy are enforced again at publication;
 - ambiguous material is retained as an abstention, not published;
 - an approved statement becomes a canonical, hash-verified publication payload;
-- drafts, raw captures, and raw extraction output are absent from public queries;
+- drafts, raw captures, raw extraction output, official import payloads, and
+  discovery evidence are absent from public queries;
 - completed, URL-bound source coverage gates the stronger “No explicit public
   statement found” wording;
 - later official candidacy-status observations are retained and reflected in

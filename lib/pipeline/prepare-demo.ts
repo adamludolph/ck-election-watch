@@ -2,8 +2,12 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { PGlite } from "@electric-sql/pglite";
 import { recordMockExtraction } from "@/lib/ai/extract";
+import {
+  acceptDiscoveredSource,
+  recordDiscoveryFixture,
+} from "@/lib/discovery/sources";
 import { captureWebsiteFixture } from "@/lib/ingest/capture";
-import { importCandidateFixture } from "@/lib/ingest/candidates";
+import { importOfficialRosterFixture } from "@/lib/ingest/candidates";
 import { normalizeSnapshot } from "@/lib/ingest/normalize";
 import { approveAndPublishStatement } from "@/lib/publication/publish";
 import { completeFixtureCoverage } from "@/lib/review/coverage";
@@ -17,17 +21,27 @@ export async function prepareDemoDatabase(db: PGlite): Promise<{
   extractionRunId: string;
   publicationId: string;
   researchRunId: string;
+  officialImportRunId: string;
+  discoveryRunId: string;
+  discoveredSourceId: string;
+  sourceId: string;
 }> {
-  const [candidateJson, htmlBytes, extractionJson, prompt] = await Promise.all([
-    readFile(fixturePath("official-candidates.json"), "utf8"),
-    readFile(fixturePath("candidate-site.html")),
-    readFile(fixturePath("extraction-result.v1.json"), "utf8"),
-    readFile(path.join(process.cwd(), "prompts", "extract-statements.md"), "utf8"),
-  ]);
-  const candidate = await importCandidateFixture(
-    db,
-    JSON.parse(candidateJson),
-  );
+  const [candidateBytes, discoveryBytes, htmlBytes, extractionJson, prompt] =
+    await Promise.all([
+      readFile(fixturePath("official-candidates.json")),
+      readFile(fixturePath("discovered-sources.json")),
+      readFile(fixturePath("candidate-site.html")),
+      readFile(fixturePath("extraction-result.v1.json"), "utf8"),
+      readFile(
+        path.join(process.cwd(), "prompts", "extract-statements.md"),
+        "utf8",
+      ),
+    ]);
+  const officialImport = await importOfficialRosterFixture(db, candidateBytes);
+  const candidacyId = officialImport.candidacyIds[0];
+  if (!candidacyId) {
+    throw new Error("Official fixture did not import a candidacy.");
+  }
   for (const issue of [
     { id: "issue_healthcare", slug: "healthcare", label: "Healthcare" },
     { id: "issue_roads", slug: "roads", label: "Roads" },
@@ -39,10 +53,23 @@ export async function prepareDemoDatabase(db: PGlite): Promise<{
       [issue.id, issue.slug, issue.label],
     );
   }
+  const discovery = await recordDiscoveryFixture(db, discoveryBytes);
+  const discoveredSourceId = discovery.discoveredSourceIds[0];
+  if (!discoveredSourceId) {
+    throw new Error("Discovery fixture did not record a source.");
+  }
+  const accepted = await acceptDiscoveredSource(
+    db,
+    discoveredSourceId,
+    "2026-07-24T16:03:00.000Z",
+    "Accepted synthetic candidate-owned website fixture.",
+  );
+  if (!accepted.sourceId) {
+    throw new Error("Accepted discovery did not create a source.");
+  }
   const url = "https://example.invalid/demo-candidate/platform";
   const capture = await captureWebsiteFixture(db, {
-    candidacyId: candidate.candidacyId,
-    sourceTitle: "Alex Morgan for Mayor — Platform",
+    sourceId: accepted.sourceId,
     canonicalUrl: url,
     originalUrl: url,
     capturedAt: "2026-07-24T16:05:00.000Z",
@@ -54,7 +81,7 @@ export async function prepareDemoDatabase(db: PGlite): Promise<{
     "2026-07-24T16:06:00.000Z",
   );
   const extraction = await recordMockExtraction(db, {
-    candidacyId: candidate.candidacyId,
+    candidacyId,
     snapshotId: capture.snapshotId,
     prompt,
     rawResult: JSON.parse(extractionJson),
@@ -75,7 +102,7 @@ export async function prepareDemoDatabase(db: PGlite): Promise<{
     "2026-07-24T16:10:00.000Z",
   );
   const coverage = await completeFixtureCoverage(db, {
-    candidacyId: candidate.candidacyId,
+    candidacyId,
     sourceId: capture.sourceId,
     snapshotId: capture.snapshotId,
     extractionRunId: extraction.extractionRunId,
@@ -84,10 +111,14 @@ export async function prepareDemoDatabase(db: PGlite): Promise<{
     completedAt: "2026-07-24T16:12:00.000Z",
   });
   return {
-    candidacyId: candidate.candidacyId,
+    candidacyId,
     snapshotId: capture.snapshotId,
     extractionRunId: extraction.extractionRunId,
     publicationId: publication.publicationId,
     researchRunId: coverage.researchRunId,
+    officialImportRunId: officialImport.officialImportRunId,
+    discoveryRunId: discovery.discoveryRunId,
+    discoveredSourceId,
+    sourceId: accepted.sourceId,
   };
 }

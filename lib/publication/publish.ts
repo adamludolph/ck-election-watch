@@ -8,6 +8,8 @@ import {
 import { runStage } from "@/lib/pipeline/stage";
 import { evaluateAttribution } from "@/lib/review/policy";
 
+type QueryClient = Pick<PGlite, "query">;
+
 type StatementEvidenceRow = {
   statement_id: string;
   status: string;
@@ -38,7 +40,7 @@ type StatementEvidenceRow = {
 };
 
 async function loadStatementEvidence(
-  db: PGlite,
+  db: QueryClient,
   statementId: string,
 ): Promise<StatementEvidenceRow> {
   const result = await db.query<StatementEvidenceRow>(
@@ -129,7 +131,7 @@ function validateStatementEvidence(row: StatementEvidenceRow): void {
 }
 
 async function buildPayload(
-  db: PGlite,
+  db: QueryClient,
   row: StatementEvidenceRow,
 ): Promise<PublishedStatementPayloadV1> {
   const issues = await db.query<{ slug: string; label: string }>(
@@ -166,7 +168,7 @@ async function buildPayload(
 }
 
 async function writePublication(
-  db: PGlite,
+  db: QueryClient,
   statementId: string,
   now: string,
   approve: boolean,
@@ -239,7 +241,7 @@ export function approveAndPublishStatement(
       inputRefs: { statementId, approve: true },
       now,
     },
-    () => writePublication(db, statementId, now, true),
+    (tx) => writePublication(tx, statementId, now, true),
   );
 }
 
@@ -258,6 +260,6 @@ export function publishApprovedStatement(
       inputRefs: { statementId, approve: false },
       now,
     },
-    () => writePublication(db, statementId, now, false),
+    (tx) => writePublication(tx, statementId, now, false),
   );
 }

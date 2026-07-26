@@ -73,7 +73,7 @@ export async function recordMockExtraction(
       },
       now: input.now,
     },
-    async () => {
+    async (tx) => {
       const parsed = extractionResultV1Schema.safeParse(input.rawResult);
       if (!parsed.success) {
         throw new ExtractionSchemaError(
@@ -82,7 +82,7 @@ export async function recordMockExtraction(
         );
       }
       const result: ExtractionResultV1 = parsed.data;
-      const snapshotContext = await db.query<SnapshotContextRow>(
+      const snapshotContext = await tx.query<SnapshotContextRow>(
         `SELECT src.candidacy_id, src.attribution_policy
            FROM source_snapshots ss
            JOIN sources src ON src.id = ss.source_id
@@ -95,14 +95,14 @@ export async function recordMockExtraction(
           "Extraction snapshot does not belong to the supplied candidacy.",
         );
       }
-      const blocks = await db.query<BlockRow>(
+      const blocks = await tx.query<BlockRow>(
         `SELECT id, text FROM normalized_blocks WHERE snapshot_id = $1`,
         [input.snapshotId],
       );
       const blockMap = new Map(
         blocks.rows.map((block) => [block.id, block]),
       );
-      const controlledIssues = await db.query<{ slug: string }>(
+      const controlledIssues = await tx.query<{ slug: string }>(
         "SELECT slug FROM issues",
       );
       const issueSet = new Set(
@@ -150,7 +150,7 @@ export async function recordMockExtraction(
         }
       }
 
-      const existingRun = await db.query<{ raw_result: string }>(
+      const existingRun = await tx.query<{ raw_result: string }>(
         `SELECT raw_result::text AS raw_result
            FROM extraction_runs
           WHERE id = $1`,
@@ -165,7 +165,7 @@ export async function recordMockExtraction(
             "Extraction identity already exists with a different raw result.",
           );
         }
-        const existingStatements = await db.query<{
+        const existingStatements = await tx.query<{
           id: string;
           candidacy_id: string;
         }>(
@@ -199,7 +199,7 @@ export async function recordMockExtraction(
         };
       }
 
-      await db.query(
+      await tx.query(
         `INSERT INTO extraction_runs (
            id, snapshot_id, prompt_key, prompt_sha256, model, schema_version,
            status, raw_result, created_at
@@ -232,7 +232,7 @@ export async function recordMockExtraction(
           );
         }
         statementIds.push(statementId);
-        await db.query(
+        await tx.query(
           `INSERT INTO statements (
              id, extraction_run_id, extraction_item_id, candidacy_id, summary,
              attribution_type, status
@@ -254,7 +254,7 @@ export async function recordMockExtraction(
           String(item.endOffset),
           sha256(item.quote),
         );
-        await db.query(
+        await tx.query(
           `INSERT INTO evidence (
              id, statement_id, normalized_block_id, quote, start_offset,
              end_offset
@@ -269,7 +269,7 @@ export async function recordMockExtraction(
           ],
         );
         for (const issueSlug of item.issueSlugs) {
-          await db.query(
+          await tx.query(
             `INSERT INTO statement_issues (statement_id, issue_id)
              SELECT $1, id FROM issues WHERE slug = $2`,
             [statementId, issueSlug],

@@ -73,9 +73,9 @@ export async function normalizeSnapshot(
       inputRefs: { snapshotId, contentSha256: row.content_sha256 },
       now,
     },
-    async () => {
+    async (tx) => {
       for (const block of blocks) {
-        await db.query(
+        await tx.query(
           `INSERT INTO normalized_blocks (
              id, snapshot_id, ordinal, block_type, text, text_sha256
            ) VALUES ($1, $2, $3, $4, $5, $6)
