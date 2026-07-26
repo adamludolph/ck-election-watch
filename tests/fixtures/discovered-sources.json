@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1",
+  "run": {
+    "municipalitySlug": "chatham-kent",
+    "electionDate": "2026-10-26",
+    "method": "manual_fixture",
+    "methodVersion": "1",
+    "startedAt": "2026-07-24T16:01:00.000Z",
+    "completedAt": "2026-07-24T16:02:00.000Z"
+  },
+  "results": [
+    {
+      "candidacyUpstreamKey": "fixture:demo-candidate",
+      "observedUrl": "https://example.invalid/demo-candidate/platform",
+      "canonicalUrl": "https://example.invalid/demo-candidate/platform",
+      "proposedTitle": "Alex Morgan for Mayor — Platform",
+      "sourceType": "website",
+      "observedAt": "2026-07-24T15:59:00.000Z",
+      "ownershipEvidence": {
+        "schemaVersion": "1",
+        "candidacy": {
+          "kind": "official-candidacy-link",
+          "officialImport": {
+            "sourceUrl": "https://example.invalid/municipal-election/candidates.json",
+            "observedAt": "2026-07-24T16:00:00.000Z"
+          },
+          "upstreamKey": "fixture:demo-candidate"
+        },
+        "sourceAssociation": {
+          "kind": "candidate-page-self-identification",
+          "observedUrl": "https://example.invalid/demo-candidate/platform",
+          "observedAt": "2026-07-24T15:59:00.000Z",
+          "excerpt": "Official campaign website for Alex Morgan, candidate for Mayor."
+        },
+        "note": "Synthetic fixture evidence for the saved candidate website."
+      }
+    }
+  ]
+}

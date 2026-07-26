@@ -38,8 +38,8 @@ export async function completeFixtureCoverage(
       },
       now: input.completedAt,
     },
-    async () => {
-      const consistency = await db.query<{ valid: boolean }>(
+    async (tx) => {
+      const consistency = await tx.query<{ valid: boolean }>(
         `SELECT EXISTS (
            SELECT 1
            FROM sources src
@@ -65,7 +65,7 @@ export async function completeFixtureCoverage(
         );
       }
       const scope = [input.attemptedUrl];
-      await db.query(
+      await tx.query(
         `INSERT INTO research_runs (
            id, candidacy_id, methodology_version, source_scope, status,
            started_at
@@ -77,7 +77,7 @@ export async function completeFixtureCoverage(
           input.startedAt,
         ],
       );
-      await db.query(
+      await tx.query(
         `INSERT INTO research_run_sources (
            id, research_run_id, source_id, attempted_url, outcome, snapshot_id,
            extraction_run_id, reviewed_at, observed_at
@@ -92,7 +92,7 @@ export async function completeFixtureCoverage(
           input.completedAt,
         ],
       );
-      const attempts = await db.query<{ attempted_url: string }>(
+      const attempts = await tx.query<{ attempted_url: string }>(
         `SELECT attempted_url
            FROM research_run_sources
           WHERE research_run_id = $1
@@ -110,7 +110,7 @@ export async function completeFixtureCoverage(
           "Research scope is not completely captured and reviewed.",
         );
       }
-      await db.query(
+      await tx.query(
         `UPDATE research_runs
             SET status = 'completed', completed_at = $1
           WHERE id = $2`,

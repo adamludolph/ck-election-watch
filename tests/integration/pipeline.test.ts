@@ -59,13 +59,21 @@ describe("fixture-backed evidence pipeline", () => {
       statements: number;
       evidence: number;
       publications: number;
+      officialImports: number;
+      discoveryRuns: number;
+      discoveredSources: number;
+      sources: number;
     }>(
       `SELECT
         (SELECT COUNT(*)::integer FROM candidacies) AS candidacies,
         (SELECT COUNT(*)::integer FROM source_snapshots) AS snapshots,
         (SELECT COUNT(*)::integer FROM statements) AS statements,
         (SELECT COUNT(*)::integer FROM evidence) AS evidence,
-        (SELECT COUNT(*)::integer FROM publications) AS publications`,
+        (SELECT COUNT(*)::integer FROM publications) AS publications,
+        (SELECT COUNT(*)::integer FROM official_import_runs) AS "officialImports",
+        (SELECT COUNT(*)::integer FROM discovery_runs) AS "discoveryRuns",
+        (SELECT COUNT(*)::integer FROM discovered_sources) AS "discoveredSources",
+        (SELECT COUNT(*)::integer FROM sources) AS sources`,
     );
     expect(counts.rows[0]).toEqual({
       candidacies: 1,
@@ -73,6 +81,10 @@ describe("fixture-backed evidence pipeline", () => {
       statements: 2,
       evidence: 2,
       publications: 1,
+      officialImports: 1,
+      discoveryRuns: 1,
+      discoveredSources: 1,
+      sources: 1,
     });
 
     const candidate = await getPublicCandidateRecord(db, "demo-candidate");
@@ -89,6 +101,9 @@ describe("fixture-backed evidence pipeline", () => {
     ).toBe(
       "No explicit public statement found in the sources reviewed.",
     );
+    expect(JSON.stringify(candidate)).not.toContain("officialImport");
+    expect(JSON.stringify(candidate)).not.toContain("ownershipEvidence");
+    expect(JSON.stringify(candidate)).not.toContain("discoveryRun");
 
     await db.query(
       "UPDATE statements SET summary = 'Mutated draft table' WHERE status = 'approved'",
@@ -364,8 +379,7 @@ describe("fixture-backed evidence pipeline", () => {
       path.join(process.cwd(), "tests/fixtures/candidate-site.html"),
     );
     await captureWebsiteFixture(db, {
-      candidacyId: prepared.candidacyId,
-      sourceTitle: "Alex Morgan for Mayor — Platform",
+      sourceId: prepared.sourceId,
       canonicalUrl: "https://example.invalid/demo-candidate/platform",
       originalUrl: "https://example.invalid/demo-candidate/platform",
       capturedAt: "2026-07-25T16:05:00.000Z",
@@ -385,8 +399,7 @@ describe("fixture-backed evidence pipeline", () => {
   it("rejects empty captures and records failed-then-successful stage attempts", async () => {
     await expect(
       captureWebsiteFixture(db, {
-        candidacyId: "missing",
-        sourceTitle: "Empty",
+        sourceId: "missing",
         canonicalUrl: "https://example.invalid",
         originalUrl: "https://example.invalid",
         capturedAt: "2026-07-24T16:00:00.000Z",
@@ -395,8 +408,7 @@ describe("fixture-backed evidence pipeline", () => {
     ).rejects.toThrow(SourceCaptureValidationError);
     await expect(
       captureWebsiteFixture(db, {
-        candidacyId: "missing",
-        sourceTitle: "Invalid",
+        sourceId: "missing",
         canonicalUrl: "not a url",
         originalUrl: "not a url",
         capturedAt: "2026-07-24T16:00:00.000Z",
@@ -441,6 +453,38 @@ describe("fixture-backed evidence pipeline", () => {
       "failed",
       "succeeded",
     ]);
+  });
+
+  it("serializes concurrent stage calls and executes one successful attempt", async () => {
+    let executions = 0;
+    const options = {
+      stage: "concurrency-test",
+      idempotencyKey: "one-operation",
+      processorName: "test",
+      processorVersion: "1",
+      inputRefs: {},
+      now: "2026-07-24T16:00:00.000Z",
+    };
+    const [first, second] = await Promise.all([
+      runStage(db, options, async (tx) => {
+        executions += 1;
+        await tx.query("SELECT 1");
+        return { value: "ok" };
+      }),
+      runStage(db, options, async () => {
+        executions += 1;
+        return { value: "duplicate" };
+      }),
+    ]);
+    expect(first).toEqual({ value: "ok" });
+    expect(second).toEqual({ value: "ok" });
+    expect(executions).toBe(1);
+    const attempts = await db.query<{ count: number }>(
+      `SELECT COUNT(*)::integer AS count
+         FROM stage_runs
+        WHERE stage = 'concurrency-test'`,
+    );
+    expect(attempts.rows[0].count).toBe(1);
   });
 
   it("rejects inconsistent coverage provenance", async () => {

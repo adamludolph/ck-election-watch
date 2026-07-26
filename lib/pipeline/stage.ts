@@ -1,4 +1,4 @@
-import type { PGlite } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { PipelineError } from "@/lib/core/errors";
 import { sha256, stableId } from "@/lib/core/hash";
 
@@ -9,27 +9,19 @@ type StageOptions = {
   processorVersion: string;
   inputRefs: Record<string, unknown>;
   now: string;
+  validateReplay?: () => Promise<void>;
 };
 
 type ExistingStageRow = {
   output_refs: string;
 };
 
-export async function runStage<T extends Record<string, unknown>>(
+const stageTails = new WeakMap<PGlite, Promise<unknown>>();
+
+async function beginStageAttempt(
   db: PGlite,
   options: StageOptions,
-  execute: () => Promise<T>,
-): Promise<T> {
-  const existing = await db.query<ExistingStageRow>(
-    `SELECT output_refs::text AS output_refs
-       FROM stage_runs
-      WHERE stage = $1 AND idempotency_key = $2 AND status = 'succeeded'`,
-    [options.stage, options.idempotencyKey],
-  );
-  if (existing.rows[0]) {
-    return JSON.parse(existing.rows[0].output_refs) as T;
-  }
-
+): Promise<string> {
   const attempts = await db.query<{ next_attempt: number }>(
     `SELECT COALESCE(MAX(attempt), 0) + 1 AS next_attempt
        FROM stage_runs
@@ -64,30 +56,84 @@ export async function runStage<T extends Record<string, unknown>>(
       options.now,
     ],
   );
+  return id;
+}
 
-  await db.exec("BEGIN");
+async function failStageAttempt(
+  db: PGlite,
+  id: string,
+  now: string,
+  error: unknown,
+): Promise<void> {
+  const code = error instanceof PipelineError ? error.code : "unexpected";
+  const message =
+    error instanceof Error ? error.message : "Unknown stage failure";
+  await db.query(
+    `UPDATE stage_runs
+        SET status = 'failed', error_code = $1, error_message = $2,
+            completed_at = $3
+      WHERE id = $4`,
+    [code, message.slice(0, 500), now, id],
+  );
+}
+
+async function serializeStage<T>(
+  db: PGlite,
+  execute: () => Promise<T>,
+): Promise<T> {
+  const prior = stageTails.get(db) ?? Promise.resolve();
+  const current = prior.catch(() => undefined).then(execute);
+  stageTails.set(db, current);
   try {
-    const output = await execute();
-    await db.query(
-      `UPDATE stage_runs
-          SET status = 'succeeded', output_refs = $1::jsonb, completed_at = $2
-        WHERE id = $3`,
-      [JSON.stringify(output), options.now, id],
-    );
-    await db.exec("COMMIT");
-    return output;
-  } catch (error) {
-    await db.exec("ROLLBACK");
-    const code = error instanceof PipelineError ? error.code : "unexpected";
-    const message =
-      error instanceof Error ? error.message : "Unknown stage failure";
-    await db.query(
-      `UPDATE stage_runs
-          SET status = 'failed', error_code = $1, error_message = $2,
-              completed_at = $3
-        WHERE id = $4`,
-      [code, message.slice(0, 500), options.now, id],
-    );
-    throw error;
+    return await current;
+  } finally {
+    if (stageTails.get(db) === current) {
+      stageTails.delete(db);
+    }
   }
+}
+
+export async function runStage<T extends Record<string, unknown>>(
+  db: PGlite,
+  options: StageOptions,
+  execute: (tx: Transaction) => Promise<T>,
+): Promise<T> {
+  return serializeStage(db, async () => {
+    const existing = await db.query<ExistingStageRow>(
+      `SELECT output_refs::text AS output_refs
+         FROM stage_runs
+        WHERE stage = $1 AND idempotency_key = $2 AND status = 'succeeded'`,
+      [options.stage, options.idempotencyKey],
+    );
+    if (existing.rows[0]) {
+      if (options.validateReplay) {
+        try {
+          await options.validateReplay();
+        } catch (error) {
+          const replayAttemptId = await beginStageAttempt(db, options);
+          await failStageAttempt(db, replayAttemptId, options.now, error);
+          throw error;
+        }
+      }
+      return JSON.parse(existing.rows[0].output_refs) as T;
+    }
+
+    const id = await beginStageAttempt(db, options);
+
+    try {
+      return await db.transaction(async (tx) => {
+        const output = await execute(tx);
+        await tx.query(
+          `UPDATE stage_runs
+              SET status = 'succeeded', output_refs = $1::jsonb, completed_at = $2
+            WHERE id = $3`,
+          [JSON.stringify(output), options.now, id],
+        );
+        return output;
+      });
+    } catch (error) {
+      await failStageAttempt(db, id, options.now, error);
+      throw error;
+    }
+  });
 }

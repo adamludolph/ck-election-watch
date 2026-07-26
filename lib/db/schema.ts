@@ -1,7 +1,9 @@
 import {
   boolean,
+  check,
   customType,
   date,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -10,6 +12,7 @@ import {
   timestamp,
   unique,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({
   dataType: () => "bytea",
@@ -65,6 +68,7 @@ export const candidacies = pgTable(
     personId: text("person_id")
       .notNull()
       .references(() => people.id),
+    officialPersonKey: text("official_person_key"),
     slug: text().notNull(),
     status: text().notNull(),
   },
@@ -78,6 +82,55 @@ export const candidacies = pgTable(
   ],
 );
 
+export const officialImportRuns = pgTable(
+  "official_import_runs",
+  {
+    id: text().primaryKey(),
+    electionId: text("election_id")
+      .notNull()
+      .references(() => elections.id),
+    sourceUrl: text("source_url").notNull(),
+    observedAt: timestamptz("observed_at").notNull(),
+    contentType: text("content_type").notNull(),
+    encoding: text().notNull(),
+    rawPayload: bytea("raw_payload").notNull(),
+    byteLength: integer("byte_length").notNull(),
+    payloadSha256: text("payload_sha256").notNull(),
+    importedCount: integer("imported_count").notNull(),
+  },
+  (table) => [
+    unique("official_import_logical_key").on(
+      table.electionId,
+      table.sourceUrl,
+      table.observedAt,
+    ),
+    index("official_import_runs_election_observed_idx").on(
+      table.electionId,
+      table.observedAt.desc(),
+    ),
+    check(
+      "official_import_runs_content_type_check",
+      sql`${table.contentType} = 'application/json'`,
+    ),
+    check(
+      "official_import_runs_encoding_check",
+      sql`${table.encoding} = 'utf-8'`,
+    ),
+    check(
+      "official_import_runs_byte_length_check",
+      sql`${table.byteLength} > 0`,
+    ),
+    check(
+      "official_import_runs_payload_sha256_check",
+      sql`${table.payloadSha256} ~ '^[a-f0-9]{64}$'`,
+    ),
+    check(
+      "official_import_runs_imported_count_check",
+      sql`${table.importedCount} > 0`,
+    ),
+  ],
+);
+
 export const candidacyStatusHistory = pgTable(
   "candidacy_status_history",
   {
@@ -88,20 +141,157 @@ export const candidacyStatusHistory = pgTable(
     status: text().notNull(),
     observedAt: timestamptz("observed_at").notNull(),
     upstreamKey: text("upstream_key").notNull(),
+    officialImportRunId: text("official_import_run_id").references(
+      () => officialImportRuns.id,
+    ),
   },
+  (table) => [
+    unique("candidacy_status_observed_unique").on(
+      table.candidacyId,
+      table.observedAt,
+    ),
+    index("candidacy_status_upstream_lookup_idx").on(
+      table.upstreamKey,
+      table.candidacyId,
+      table.observedAt.desc(),
+    ),
+  ],
 );
 
-export const sources = pgTable("sources", {
-  id: text().primaryKey(),
-  candidacyId: text("candidacy_id")
-    .notNull()
-    .references(() => candidacies.id),
-  sourceType: text("source_type").notNull(),
-  title: text().notNull(),
-  canonicalUrl: text("canonical_url").notNull(),
-  attributionPolicy: text("attribution_policy").notNull(),
-  active: boolean().notNull(),
-});
+export const sources = pgTable(
+  "sources",
+  {
+    id: text().primaryKey(),
+    candidacyId: text("candidacy_id")
+      .notNull()
+      .references(() => candidacies.id),
+    sourceType: text("source_type").notNull(),
+    title: text().notNull(),
+    canonicalUrl: text("canonical_url").notNull(),
+    attributionPolicy: text("attribution_policy").notNull(),
+    active: boolean().notNull(),
+  },
+  (table) => [
+    unique("sources_candidacy_canonical_url").on(
+      table.candidacyId,
+      table.canonicalUrl,
+    ),
+  ],
+);
+
+export const discoveryRuns = pgTable(
+  "discovery_runs",
+  {
+    id: text().primaryKey(),
+    electionId: text("election_id")
+      .notNull()
+      .references(() => elections.id),
+    method: text().notNull(),
+    methodVersion: text("method_version").notNull(),
+    payloadSha256: text("payload_sha256").notNull(),
+    startedAt: timestamptz("started_at").notNull(),
+    completedAt: timestamptz("completed_at").notNull(),
+  },
+  (table) => [
+    unique("discovery_run_logical_key").on(
+      table.electionId,
+      table.method,
+      table.methodVersion,
+      table.payloadSha256,
+      table.startedAt,
+    ),
+    index("discovery_runs_election_started_idx").on(
+      table.electionId,
+      table.startedAt.desc(),
+    ),
+    check(
+      "discovery_runs_method_check",
+      sql`${table.method} = 'manual_fixture'`,
+    ),
+    check(
+      "discovery_runs_payload_sha256_check",
+      sql`${table.payloadSha256} ~ '^[a-f0-9]{64}$'`,
+    ),
+  ],
+);
+
+export const discoveredSources = pgTable(
+  "discovered_sources",
+  {
+    id: text().primaryKey(),
+    discoveryRunId: text("discovery_run_id")
+      .notNull()
+      .references(() => discoveryRuns.id),
+    candidacyId: text("candidacy_id")
+      .notNull()
+      .references(() => candidacies.id),
+    observedUrl: text("observed_url").notNull(),
+    canonicalUrl: text("canonical_url").notNull(),
+    proposedTitle: text("proposed_title").notNull(),
+    sourceType: text("source_type").notNull(),
+    ownershipEvidence: jsonb("ownership_evidence").notNull(),
+    observedAt: timestamptz("observed_at").notNull(),
+    status: text().notNull(),
+    reviewedAt: timestamptz("reviewed_at"),
+    reviewerNote: text("reviewer_note"),
+    rejectionReason: text("rejection_reason"),
+    acceptedSourceId: text("accepted_source_id").references(() => sources.id),
+  },
+  (table) => [
+    unique("discovered_source_identity").on(
+      table.discoveryRunId,
+      table.candidacyId,
+      table.canonicalUrl,
+    ),
+    index("discovered_sources_candidacy_status_idx").on(
+      table.candidacyId,
+      table.status,
+    ),
+    index("discovered_sources_accepted_source_idx")
+      .on(table.acceptedSourceId)
+      .where(sql`${table.acceptedSourceId} IS NOT NULL`),
+    check(
+      "discovered_sources_proposed_title_check",
+      sql`char_length(${table.proposedTitle}) BETWEEN 1 AND 200`,
+    ),
+    check(
+      "discovered_sources_source_type_check",
+      sql`${table.sourceType} = 'website'`,
+    ),
+    check(
+      "discovered_sources_status_check",
+      sql`${table.status} IN ('proposed', 'accepted', 'rejected')`,
+    ),
+    check(
+      "discovered_sources_reviewer_note_check",
+      sql`${table.reviewerNote} IS NULL OR char_length(${table.reviewerNote}) BETWEEN 1 AND 500`,
+    ),
+    check(
+      "discovered_sources_rejection_reason_check",
+      sql`${table.rejectionReason} IS NULL OR ${table.rejectionReason} IN ('ownership-not-established', 'duplicate', 'out-of-scope')`,
+    ),
+    check(
+      "discovered_source_decision_state",
+      sql`(
+        (${table.status} = 'proposed'
+          AND ${table.reviewedAt} IS NULL
+          AND ${table.reviewerNote} IS NULL
+          AND ${table.rejectionReason} IS NULL
+          AND ${table.acceptedSourceId} IS NULL)
+        OR
+        (${table.status} = 'accepted'
+          AND ${table.reviewedAt} IS NOT NULL
+          AND ${table.rejectionReason} IS NULL
+          AND ${table.acceptedSourceId} IS NOT NULL)
+        OR
+        (${table.status} = 'rejected'
+          AND ${table.reviewedAt} IS NOT NULL
+          AND ${table.rejectionReason} IS NOT NULL
+          AND ${table.acceptedSourceId} IS NULL)
+      )`,
+    ),
+  ],
+);
 
 export const stageRuns = pgTable("stage_runs", {
   id: text().primaryKey(),

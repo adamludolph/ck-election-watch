@@ -2,9 +2,9 @@
 
 ## Status and scope
 
-This document records the initial architecture for the 2026 Chatham-Kent
-vertical slice. It favors a small, inspectable system that can grow through
-clear module boundaries.
+This document records the architecture for the 2026 Chatham-Kent fixture-backed
+vertical slice through Milestone 2. It favors a small, inspectable system that
+can grow through clear module boundaries.
 
 It is an implementation guide, not approval to ingest restricted sources,
 change production data, or publish a public site.
@@ -239,9 +239,9 @@ Planned ingestion types are:
 
 | Integration | Kind | Phase 1 status | Notes |
 |---|---|---|---|
-| Official candidate list | Candidate importer | Implement | Election authority data and candidacy status |
-| Website | Content adapter | Implement | Allow-listed candidate-owned static pages |
-| Manual | Content adapter | Implement if useful | Uses the same provenance requirements |
+| Official candidate list | Candidate importer | Fixture implemented | Exact saved bytes, source metadata, and candidacy status history |
+| Website | Content adapter | Fixture implemented | Accepted candidate-owned saved pages only |
+| Manual discovery | Discovery input | Fixture implemented | Proposed result requires explicit accept/reject review |
 | PDF | Content adapter | Planned | Requires page-level evidence mapping |
 | YouTube | Content adapter | Planned | Requires compliant transcript acquisition and timecodes |
 | News | Content adapter | Planned | Direct quotations only; excerpt and rights controls |
@@ -333,7 +333,10 @@ the historical record.
 
 The pipeline uses stage-specific idempotency keys:
 
-- official import: election, upstream identity, and observed version;
+- official import stage: election, source, observation time, and exact payload
+  hash; the database logical key omits the hash so changed bytes conflict;
+- discovery record: election, method/version, exact fixture hash, and start time;
+- discovery decision: discovered-source identity and terminal action;
 - capture: source, adapter version, and capture request;
 - normalization: snapshot hash and normalizer version;
 - extraction: content hashes, prompt hash, schema version, and model;
@@ -425,13 +428,14 @@ The first implementation slice is intentionally narrow:
 
 1. Load the configured Chatham-Kent election.
 2. Import official candidacies from a saved municipal fixture.
-3. Register one candidate-owned website.
-4. Capture one page into an immutable snapshot.
-5. Normalize it into a `ContentItem`.
-6. Extract one or more evidence-backed draft statements.
-7. Set an eligible statement to approved through a bounded development path.
-8. Create its publication record.
-9. Display it on a candidate profile with its original evidence link.
+3. Record one candidate-owned website discovery as proposed.
+4. Explicitly accept it into the source registry.
+5. Capture one page into an immutable snapshot.
+6. Normalize it into a `ContentItem`.
+7. Extract one or more evidence-backed draft statements.
+8. Set an eligible statement to approved through a bounded development path.
+9. Create its publication record.
+10. Display it on a candidate profile with its original evidence link.
 
 No additional source adapter should be implemented until this path is
 reproducible, tested, and reviewable end to end.
@@ -440,7 +444,8 @@ reproducible, tested, and reviewable end to end.
 
 The first slice uses one Next.js modular monolith, Drizzle's PostgreSQL schema
 contract, and PGlite for both the file-backed local database and isolated
-in-memory tests. The same reviewed SQL migration initializes both environments.
+in-memory tests. The same ordered, digest-checked SQL migrations initialize both
+environments.
 The pgvector extension and an embedding table are present from day one, but the
 slice does not generate or query embeddings.
 
@@ -457,16 +462,27 @@ must belong to the same candidacy and match the captured source URL.
 
 Extraction and publication independently enforce source ownership, candidacy
 provenance, exact quote offsets, snapshot and normalized-block digests, and the
-Statement Attribution Policy. Stage data and its success marker commit in the
-same transaction; failed attempts remain inspectable. Later official candidacy
-status observations are retained in history and the latest observation is
-rendered publicly.
+Statement Attribution Policy. Per-database stage execution is serialized on
+PGlite's single connection. Domain writes and the success marker commit in one
+callback transaction; failed attempts remain inspectable. Official imports
+snapshot caller-owned bytes, preserve the exact payload, retain the official
+person key used for identity reconciliation, and link each candidacy-status
+observation to exactly one import run. Equal-time observations from a different
+logical import are conflicts rather than ambiguous shared provenance.
+Discovery evidence is durable but private, review transitions are terminal, and
+conflicting rejection replays fail without changing the original decision.
+Candidate-owned website URLs are canonical HTTP(S) URLs without credentials;
+fixture capture requires the requested URL to equal the admitted canonical URL
+and rechecks that the source is active and accepted. A denied cached replay is
+recorded as a failed stage attempt. Later official candidacy status observations
+are retained in history and the latest observation is rendered publicly.
 
 The executable contract is:
 
 ```text
 npm run db:prepare
-  -> candidate import
+  -> exact official roster import
+  -> manual discovery proposal + acceptance
   -> capture + observation
   -> deterministic normalization
   -> structured extraction validation
@@ -478,6 +494,6 @@ npm run check
 
 npm run test:e2e
   -> published evidence visible
-  -> draft/raw content absent
+  -> draft/raw/import/discovery content absent
   -> unknown candidacy returns 404
 ```

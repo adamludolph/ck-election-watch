@@ -1,5 +1,14 @@
 import { expect, test } from "@playwright/test";
 
+test("home evidence-demo link opens the synthetic candidate record", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "Open the evidence demo" }).click();
+  await expect(page).toHaveURL(/\/candidates\/demo-candidate$/);
+  await expect(page.getByRole("heading", { name: "Alex Morgan" })).toBeVisible();
+});
+
 test("publishes one traceable statement while keeping drafts and raw data private", async ({
   page,
 }) => {
@@ -28,6 +37,10 @@ test("publishes one traceable statement while keeping drafts and raw data privat
     page.getByText("block_58af383dd5d4_1_7390f3930269"),
   ).toBeVisible();
   await expect(page.getByText(/window\.tracking/)).toHaveCount(0);
+  await expect(page.getByText(/officialImportRunId/)).toHaveCount(0);
+  await expect(page.getByText(/candidate-page-self-identification/)).toHaveCount(
+    0,
+  );
 });
 
 test("unknown candidacy renders a 404", async ({ page }) => {
