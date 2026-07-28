@@ -37,17 +37,15 @@ describe("public absence wording", () => {
     expect(
       publicAbsenceMessage({
         coverageComplete: true,
-        hasDraft: false,
         hasActivePublication: true,
       }),
     ).toBeNull();
   });
 
-  it("uses explicit absence only for completed coverage without a draft", () => {
+  it("uses explicit absence for completed coverage independent of drafts", () => {
     expect(
       publicAbsenceMessage({
         coverageComplete: true,
-        hasDraft: false,
         hasActivePublication: false,
       }),
     ).toBe(
@@ -55,14 +53,10 @@ describe("public absence wording", () => {
     );
   });
 
-  it.each([
-    { coverageComplete: false, hasDraft: false },
-    { coverageComplete: false, hasDraft: true },
-    { coverageComplete: true, hasDraft: true },
-  ])("uses review-aware wording for $coverageComplete/$hasDraft", (input) => {
+  it("uses review-aware wording while coverage is incomplete", () => {
     expect(
       publicAbsenceMessage({
-        ...input,
+        coverageComplete: false,
         hasActivePublication: false,
       }),
     ).toBe("No reviewed statement is currently available.");

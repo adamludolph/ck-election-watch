@@ -4,7 +4,7 @@
     {
       "kind": "statement",
       "statementId": "statement-healthcare",
-      "blockId": "block_58af383dd5d4_1_7390f3930269",
+      "blockId": "block_64211ef5f1ab_1_7390f3930269",
       "quote": "To help recruit and retain doctors, I will establish a municipal physician recruitment office and publish annual vacancy targets.",
       "startOffset": 0,
       "endOffset": 129,
@@ -16,7 +16,7 @@
     {
       "kind": "statement",
       "statementId": "statement-roads",
-      "blockId": "block_58af383dd5d4_2_e0cc9a187ea9",
+      "blockId": "block_64211ef5f1ab_2_e0cc9a187ea9",
       "quote": "My infrastructure plan will prioritize preventive road maintenance and publish a ward-by-ward resurfacing schedule.",
       "startOffset": 0,
       "endOffset": 115,
@@ -26,8 +26,44 @@
       "confidence": 0.98
     },
     {
+      "kind": "statement",
+      "statementId": "statement-transit",
+      "blockId": "block_64211ef5f1ab_3_a786c19544c2",
+      "quote": "I will increase peak-hour bus frequency and publish monthly on-time performance reports.",
+      "startOffset": 0,
+      "endOffset": 88,
+      "attributedTo": "candidate",
+      "summary": "Increase peak-hour bus frequency and publish monthly on-time performance reports.",
+      "issueSlugs": ["transit"],
+      "confidence": 0.99
+    },
+    {
+      "kind": "statement",
+      "statementId": "statement-clinic-reports",
+      "blockId": "block_64211ef5f1ab_4_29f1df4109cf",
+      "quote": "I will publish quarterly progress reports on physician recruitment and clinic capacity.",
+      "startOffset": 0,
+      "endOffset": 87,
+      "attributedTo": "candidate",
+      "summary": "Publish quarterly progress reports on physician recruitment and clinic capacity.",
+      "issueSlugs": ["healthcare"],
+      "confidence": 0.97
+    },
+    {
+      "kind": "statement",
+      "statementId": "statement-road-tracker",
+      "blockId": "block_64211ef5f1ab_5_dbb225556896",
+      "quote": "I will create a public road-repair tracker with project dates and completion updates.",
+      "startOffset": 0,
+      "endOffset": 85,
+      "attributedTo": "candidate",
+      "summary": "Create a public road-repair tracker with project dates and completion updates.",
+      "issueSlugs": ["roads"],
+      "confidence": 0.96
+    },
+    {
       "kind": "abstain",
-      "blockId": "block_58af383dd5d4_3_aebb54fc32a8",
+      "blockId": "block_64211ef5f1ab_6_aebb54fc32a8",
       "reason": "non-explicit"
     }
   ]

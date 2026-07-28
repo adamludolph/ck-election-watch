@@ -12,6 +12,7 @@ export const migrationFiles = [
   "drizzle/0001_discovery_official_import.sql",
   "drizzle/0002_import_review_hardening.sql",
   "drizzle/0003_official_person_backfill.sql",
+  "drizzle/0004_editorial_review_controls.sql",
 ] as const;
 
 export async function applyMigrations(db: PGlite): Promise<void> {

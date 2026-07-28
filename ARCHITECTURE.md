@@ -3,7 +3,7 @@
 ## Status and scope
 
 This document records the architecture for the 2026 Chatham-Kent fixture-backed
-vertical slice through Milestone 2. It favors a small, inspectable system that
+vertical slice through Milestone 3. It favors a small, inspectable system that
 can grow through clear module boundaries.
 
 It is an implementation guide, not approval to ingest restricted sources,
@@ -41,7 +41,7 @@ municipal-election-explorer/
     db/
     discovery/
     ingest/
-    review/
+    editorial/
   scripts/
   prompts/
   drizzle/
@@ -188,24 +188,35 @@ Confidence is review metadata, not evidence and not a publication decision.
 
 ### 6. Review state
 
-Phase 1 stores `draft` or `approved` on each statement. It does not require a
-review UI, user-account system, or workflow engine.
+Milestone 3 derives a local operator phase from the statement projection, active
+publication, and latest append-only editorial event: needs review, changes
+requested, ready to approve, approved unpublished, published, rejected, or
+withdrawn. Each event freezes the complete reviewed evidence-subject digest,
+server time, bounded private note or reason, and a server-owned synthetic fixture
+operator reference. Approval succeeds only when the current subject digest
+matches the latest ready-to-approve event.
 
-Changing a statement to `approved` asserts that its attribution, summary,
-issue association, and evidence have been checked under the current policy.
-The initial vertical slice may use a narrow development-only mechanism to set
-this state. A review history table and dedicated interface can be introduced
-when a real editorial workflow is specified.
+The `/review` queue and statement detail route expose this lifecycle only for
+deterministic local fixtures. Both routes fail closed with 404 in production,
+with a request proxy enforcing the HTTP boundary before route execution, and
+their server actions enforce the same guard before acquiring a database.
+There is no account, session, permission, or real-operator identity system.
 
 ### 7. Publish
 
-Publishing an approved statement creates a `Publication` record containing the
-statement version, publication time, and current public state. Unpublishing
-closes that record with a time and reason; it does not delete the statement or
-evidence.
+Publishing revalidates attribution and provenance, recomputes the complete
+evidence-subject digest, requires it to match the referenced immutable approval
+event, and creates one canonical publication snapshot plus a `published` event.
+The snapshot's statement identity, payload, digest, and publication time cannot
+be updated or deleted. Unpublishing appends an immutable `unpublished` event,
+closes the mutable withdrawal projection with a time and reason, and terminally
+withdraws the statement; it does not delete evidence or history.
 
-Public queries select active publications whose statements remain approved.
-Drafts, raw captures, private review notes, and raw AI responses are not public.
+Public queries read `active_publication_payloads`, which requires a published
+event referencing the immutable approval event and no unpublished event. Public
+code never reconstructs claims from mutable statement or review tables. Drafts,
+raw captures, private notes, synthetic operator references, event history, and
+raw AI responses are not public.
 
 Every published statement displays:
 
@@ -452,7 +463,10 @@ slice does not generate or query embeddings.
 The public route reads only active, canonical publication payloads. A payload
 contains every field required to render its evidence trace and is verified with
 RFC 8785 canonical JSON plus SHA-256 after reading it from `jsonb`. It does not
-join mutable draft tables to construct public claims.
+join mutable draft tables to construct public claims. Publication snapshot
+identity, content, digest, and publish time are protected by a database trigger;
+active state comes from immutable publication events and their referenced
+approval event.
 
 Research coverage is also explicit. The stronger absence wording is available
 only after every URL in a bounded research scope has a captured snapshot,
@@ -477,6 +491,12 @@ and rechecks that the source is active and accepted. A denied cached replay is
 recorded as a failed stage attempt. Later official candidacy status observations
 are retained in history and the latest observation is rendered publicly.
 
+The local review boundary is equally explicit. Form submissions cannot choose an
+operator identity or event time; the server supplies both. Every action validates
+the expected phase, transition, bounded note or reason, exact replay
+fingerprint, and evidence-subject digest inside the existing serialized stage
+transaction. Editorial and publication event tables reject update and deletion.
+
 The executable contract is:
 
 ```text
@@ -486,14 +506,16 @@ npm run db:prepare
   -> capture + observation
   -> deterministic normalization
   -> structured extraction validation
-  -> approval + immutable publication
+  -> deterministic editorial phases + immutable publication history
   -> completed bounded coverage
 
 npm run check
   -> lint -> types -> Vitest + coverage -> production build
 
 npm run test:e2e
-  -> published evidence visible
-  -> draft/raw/import/discovery content absent
+  -> review, approve, publish, and unpublish lifecycle
+  -> changes-requested and rejection lifecycle
+  -> published evidence visible only while its publication event is active
+  -> private/draft/raw/import/discovery content absent
   -> unknown candidacy returns 404
 ```

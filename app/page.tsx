@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function HomePage() {
   return (
-    <main>
+    <main id="main-content" tabIndex={-1}>
       <section className="hero">
         <div className="eyebrow">Chatham-Kent · 2026 municipal election</div>
         <h1>See what a candidate actually said.</h1>
