@@ -24,6 +24,10 @@ export function createMemoryDatabase(): Promise<PGlite> {
   return createDatabase();
 }
 
+export function createFileDatabase(dataDir: string): Promise<PGlite> {
+  return createDatabase(dataDir);
+}
+
 export function getAppDatabase(): Promise<PGlite> {
   if (!globalThis.electionExplorerDb) {
     const dataDir = path.join(process.cwd(), ".data", "election-explorer");

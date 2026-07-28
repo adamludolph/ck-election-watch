@@ -409,6 +409,42 @@ export const statementIssues = pgTable(
   (table) => [primaryKey({ columns: [table.statementId, table.issueId] })],
 );
 
+export const statementEditorialEvents = pgTable(
+  "statement_editorial_events",
+  {
+    id: text().primaryKey(),
+    statementId: text("statement_id")
+      .notNull()
+      .references(() => statements.id),
+    eventType: text("event_type").notNull(),
+    requestId: text("request_id").notNull(),
+    inputFingerprintSha256: text("input_fingerprint_sha256").notNull(),
+    sequence: integer().notNull(),
+    operatorRef: text("operator_ref").notNull(),
+    note: text(),
+    reason: text(),
+    previousStatus: text("previous_status").notNull(),
+    currentStatus: text("current_status").notNull(),
+    reviewSubjectSha256: text("review_subject_sha256").notNull(),
+    occurredAt: timestamptz("occurred_at").notNull(),
+  },
+  (table) => [
+    unique("statement_editorial_event_sequence").on(
+      table.statementId,
+      table.sequence,
+    ),
+    unique("statement_editorial_event_replay").on(
+      table.statementId,
+      table.eventType,
+      table.requestId,
+    ),
+    index("statement_editorial_events_timeline_idx").on(
+      table.statementId,
+      table.sequence,
+    ),
+  ],
+);
+
 export const researchRuns = pgTable("research_runs", {
   id: text().primaryKey(),
   candidacyId: text("candidacy_id")
@@ -451,6 +487,40 @@ export const publications = pgTable("publications", {
   withdrawnAt: timestamptz("withdrawn_at"),
   withdrawalReason: text("withdrawal_reason"),
 });
+
+export const publicationEvents = pgTable(
+  "publication_events",
+  {
+    id: text().primaryKey(),
+    publicationId: text("publication_id")
+      .notNull()
+      .references(() => publications.id),
+    eventType: text("event_type").notNull(),
+    requestId: text("request_id").notNull(),
+    inputFingerprintSha256: text("input_fingerprint_sha256").notNull(),
+    approvedEditorialEventId: text("approved_editorial_event_id").references(
+      () => statementEditorialEvents.id,
+    ),
+    operatorRef: text("operator_ref").notNull(),
+    reason: text(),
+    occurredAt: timestamptz("occurred_at").notNull(),
+  },
+  (table) => [
+    unique("publication_event_type").on(
+      table.publicationId,
+      table.eventType,
+    ),
+    unique("publication_event_replay").on(
+      table.publicationId,
+      table.eventType,
+      table.requestId,
+    ),
+    index("publication_events_timeline_idx").on(
+      table.publicationId,
+      table.occurredAt,
+    ),
+  ],
+);
 
 export const statementEmbeddings = pgTable("statement_embeddings", {
   id: text().primaryKey(),

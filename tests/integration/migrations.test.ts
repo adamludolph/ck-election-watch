@@ -10,9 +10,17 @@ import {
 import { sha256, stableId } from "@/lib/core/hash";
 import { applyMigrations } from "@/lib/db/migrate";
 import { importOfficialRosterFixture } from "@/lib/ingest/candidates";
+import { prepareDemoDatabase } from "@/lib/pipeline/prepare-demo";
+import { seedMilestone2Publication } from "@/tests/support/milestone2-publication";
 
 const openDatabases: PGlite[] = [];
 const migration0 = "drizzle/0000_evidence_pipeline.sql";
+const milestone2Migrations = [
+  migration0,
+  "drizzle/0001_discovery_official_import.sql",
+  "drizzle/0002_import_review_hardening.sql",
+  "drizzle/0003_official_person_backfill.sql",
+] as const;
 
 async function createRawDatabase(): Promise<PGlite> {
   const db = await PGlite.create({
@@ -41,6 +49,42 @@ async function applyLegacyBaseline(db: PGlite): Promise<void> {
   });
 }
 
+async function applyMilestone2Baseline(db: PGlite): Promise<void> {
+  await db.exec(`
+    CREATE TABLE app_migrations (
+      name text PRIMARY KEY,
+      sha256 text NOT NULL,
+      applied_at timestamptz NOT NULL
+    );
+  `);
+  for (const [index, migration] of milestone2Migrations.entries()) {
+    const sql = await readFile(path.join(process.cwd(), migration), "utf8");
+    await db.transaction(async (tx) => {
+      await tx.exec(sql);
+      await tx.query(
+        "INSERT INTO app_migrations (name, sha256, applied_at) VALUES ($1, $2, $3)",
+        [
+          migration,
+          sha256(sql),
+          `2026-07-24T00:0${index}:00.000Z`,
+        ],
+      );
+    });
+  }
+}
+
+async function prepareMilestone2Fixture(db: PGlite) {
+  const prepared = await prepareDemoDatabase(db, {
+    seedEditorialWorkflow: false,
+  });
+  const statementId = prepared.statementIds["statement-healthcare"];
+  if (!statementId) {
+    throw new Error("Milestone 2 healthcare fixture was not created.");
+  }
+  const publication = await seedMilestone2Publication(db, statementId);
+  return { ...prepared, publicationId: publication.publicationId };
+}
+
 afterEach(async () => {
   await Promise.all(openDatabases.splice(0).map((db) => db.close()));
 });
@@ -55,7 +99,7 @@ describe("ordered migrations", () => {
         to_regclass('public.discovered_sources')::text AS discovered`,
     );
     expect(result.rows[0]).toEqual({
-      migrations: 4,
+      migrations: 5,
       discovered: "discovered_sources",
     });
   });
@@ -72,7 +116,212 @@ describe("ordered migrations", () => {
       "drizzle/0001_discovery_official_import.sql",
       "drizzle/0002_import_review_hardening.sql",
       "drizzle/0003_official_person_backfill.sql",
+      "drizzle/0004_editorial_review_controls.sql",
     ]);
+  });
+
+  it("upgrades the exact Milestone 2 fixture with immutable approval and publication history", async () => {
+    const db = await createRawDatabase();
+    await applyMilestone2Baseline(db);
+    const prepared = await prepareMilestone2Fixture(db);
+
+    await applyMigrations(db);
+
+    const state = await db.query<{
+      status: string;
+      editorial_events: number;
+      publication_events: number;
+      active_publications: number;
+      approved_event_id: string;
+    }>(
+      `SELECT
+        st.status,
+        (SELECT COUNT(*)::integer
+           FROM statement_editorial_events) AS editorial_events,
+        (SELECT COUNT(*)::integer
+           FROM publication_events) AS publication_events,
+        (SELECT COUNT(*)::integer
+           FROM active_publication_payloads) AS active_publications,
+        pe.approved_editorial_event_id AS approved_event_id
+       FROM publications p
+       JOIN statements st ON st.id = p.statement_id
+       JOIN publication_events pe
+         ON pe.publication_id = p.id AND pe.event_type = 'published'
+      WHERE p.id = $1`,
+      [prepared.publicationId],
+    );
+    expect(state.rows[0]).toEqual({
+      status: "approved",
+      editorial_events: 1,
+      publication_events: 1,
+      active_publications: 1,
+      approved_event_id: expect.stringContaining(
+        "migration-editorial-approved-",
+      ),
+    });
+
+    await applyMigrations(db);
+    const replayCounts = await db.query<{
+      editorial: number;
+      publication: number;
+    }>(
+      `SELECT
+        (SELECT COUNT(*)::integer FROM statement_editorial_events) AS editorial,
+        (SELECT COUNT(*)::integer FROM publication_events) AS publication`,
+    );
+    expect(replayCounts.rows[0]).toEqual({
+      editorial: 1,
+      publication: 1,
+    });
+  });
+
+  it("migrates a closed Milestone 2 publication to terminal withdrawal with a fixed reason", async () => {
+    const db = await createRawDatabase();
+    await applyMilestone2Baseline(db);
+    const prepared = await prepareMilestone2Fixture(db);
+    await db.query(
+      `UPDATE publications
+          SET withdrawn_at = '2026-07-24T16:11:00.000Z',
+              withdrawal_reason = NULL
+        WHERE id = $1`,
+      [prepared.publicationId],
+    );
+
+    await applyMigrations(db);
+
+    const state = await db.query<{
+      status: string;
+      reason: string;
+      editorial_events: number;
+      publication_events: number;
+      active_publications: number;
+    }>(
+      `SELECT
+        st.status,
+        pe.reason,
+        (SELECT COUNT(*)::integer
+           FROM statement_editorial_events) AS editorial_events,
+        (SELECT COUNT(*)::integer
+           FROM publication_events) AS publication_events,
+        (SELECT COUNT(*)::integer
+           FROM active_publication_payloads) AS active_publications
+       FROM publications p
+       JOIN statements st ON st.id = p.statement_id
+       JOIN publication_events pe
+         ON pe.publication_id = p.id AND pe.event_type = 'unpublished'
+      WHERE p.id = $1`,
+      [prepared.publicationId],
+    );
+    expect(state.rows[0]).toEqual({
+      status: "withdrawn",
+      reason: "Migrated legacy withdrawal without recorded reason.",
+      editorial_events: 2,
+      publication_events: 2,
+      active_publications: 0,
+    });
+
+    await expect(
+      db.query(
+        "UPDATE statement_editorial_events SET reason = 'changed' WHERE event_type = 'withdrawn'",
+      ),
+    ).rejects.toThrow("append-only");
+    await expect(
+      db.query(
+        "DELETE FROM publication_events WHERE event_type = 'unpublished'",
+      ),
+    ).rejects.toThrow("append-only");
+    await expect(
+      db.query(
+        "UPDATE publications SET payload = jsonb_set(payload, '{summary}', '\"changed\"'::jsonb)",
+      ),
+    ).rejects.toThrow("publication snapshot is immutable");
+    await expect(
+      db.query("DELETE FROM publications WHERE id = $1", [
+        prepared.publicationId,
+      ]),
+    ).rejects.toThrow("publication snapshot is immutable");
+  });
+
+  it.each([
+    {
+      name: "approved statement without publication",
+      mutate: async (db: PGlite) => {
+        await db.query(
+          "UPDATE statements SET status = 'approved', approved_at = '2026-07-24T16:09:00Z' WHERE status = 'draft'",
+        );
+      },
+    },
+    {
+      name: "publication on a non-approved statement",
+      mutate: async (db: PGlite) => {
+        await db.query(
+          "UPDATE statements SET status = 'draft', approved_at = NULL WHERE status = 'approved'",
+        );
+      },
+    },
+    {
+      name: "approved publication without approved_at",
+      mutate: async (db: PGlite) => {
+        await db.query(
+          "UPDATE statements SET approved_at = NULL WHERE status = 'approved'",
+        );
+      },
+    },
+    {
+      name: "approval after publication",
+      mutate: async (db: PGlite) => {
+        await db.query(
+          `UPDATE statements st
+              SET approved_at = p.published_at + interval '1 second'
+             FROM publications p
+            WHERE p.statement_id = st.id`,
+        );
+      },
+    },
+    {
+      name: "withdrawal before publication",
+      mutate: async (db: PGlite) => {
+        await db.query(
+          "UPDATE publications SET withdrawn_at = published_at - interval '1 second'",
+        );
+      },
+    },
+    {
+      name: "open publication with a reason",
+      mutate: async (db: PGlite) => {
+        await db.query(
+          "UPDATE publications SET withdrawal_reason = 'inconsistent'",
+        );
+      },
+    },
+    {
+      name: "over-limit withdrawal reason",
+      mutate: async (db: PGlite) => {
+        await db.query(
+          "UPDATE publications SET withdrawn_at = published_at + interval '1 second', withdrawal_reason = repeat('x', 501)",
+        );
+      },
+    },
+  ])("fails atomically for $name", async ({ mutate }) => {
+    const db = await createRawDatabase();
+    await applyMilestone2Baseline(db);
+    await prepareMilestone2Fixture(db);
+    await mutate(db);
+
+    await expect(applyMigrations(db)).rejects.toThrow(
+      DatabasePreparationError,
+    );
+    const state = await db.query<{
+      migration: number;
+      events: string | null;
+    }>(
+      `SELECT
+        (SELECT COUNT(*)::integer
+           FROM app_migrations
+          WHERE name = 'drizzle/0004_editorial_review_controls.sql') AS migration,
+        to_regclass('public.statement_editorial_events')::text AS events`,
+    );
+    expect(state.rows[0]).toEqual({ migration: 0, events: null });
   });
 
   it("refuses an applied migration digest mismatch", async () => {

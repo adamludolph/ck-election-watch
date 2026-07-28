@@ -4,20 +4,19 @@ import type { PGlite } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { recordMockExtraction } from "@/lib/ai/extract";
 import {
+  EditorialRecordNotFoundError,
+  EditorialTransitionConflictError,
   EvidenceMismatchError,
   ExtractionSchemaError,
   PublicationPolicyError,
   SourceCaptureValidationError,
 } from "@/lib/core/errors";
 import { createMemoryDatabase } from "@/lib/db/client";
+import { performEditorialAction } from "@/lib/editorial/workflow";
 import { captureWebsiteFixture } from "@/lib/ingest/capture";
 import { prepareDemoDatabase } from "@/lib/pipeline/prepare-demo";
 import { runStage } from "@/lib/pipeline/stage";
 import { getPublicCandidateRecord } from "@/lib/publication/public";
-import {
-  approveAndPublishStatement,
-  publishApprovedStatement,
-} from "@/lib/publication/publish";
 import { completeFixtureCoverage } from "@/lib/review/coverage";
 
 let db: PGlite;
@@ -78,8 +77,8 @@ describe("fixture-backed evidence pipeline", () => {
     expect(counts.rows[0]).toEqual({
       candidacies: 1,
       snapshots: 1,
-      statements: 2,
-      evidence: 2,
+      statements: 5,
+      evidence: 5,
       publications: 1,
       officialImports: 1,
       discoveryRuns: 1,
@@ -94,7 +93,7 @@ describe("fixture-backed evidence pipeline", () => {
     expect(
       candidate?.issues.find((issue) => issue.slug === "roads")
         ?.absenceMessage,
-    ).toBe("No reviewed statement is currently available.");
+    ).toBe("No explicit public statement found in the sources reviewed.");
     expect(
       candidate?.issues.find((issue) => issue.slug === "transit")
         ?.absenceMessage,
@@ -114,7 +113,7 @@ describe("fixture-backed evidence pipeline", () => {
     ).not.toBe("Mutated draft table");
   });
 
-  it("keeps drafts private and rejects publication without approval", async () => {
+  it("keeps drafts private and rejects publication outside the editorial workflow", async () => {
     const prepared = await prepareDemoDatabase(db);
     const roads = await db.query<{ id: string }>(
       `SELECT id FROM statements
@@ -123,12 +122,18 @@ describe("fixture-backed evidence pipeline", () => {
       [prepared.extractionRunId],
     );
     await expect(
-      publishApprovedStatement(
+      performEditorialAction(
         db,
-        roads.rows[0].id,
-        "2026-07-24T16:15:00.000Z",
+        {
+          action: "published",
+          statementId: roads.rows[0].id,
+          requestId: "test:pipeline:roads:publish",
+          operatorRef: "fixture:test-publisher",
+          expectedPhase: "needs_review",
+        },
+        () => "2026-07-24T16:15:00.000Z",
       ),
-    ).rejects.toThrow(PublicationPolicyError);
+    ).rejects.toThrow(EditorialTransitionConflictError);
     const publications = await db.query<{ count: number }>(
       "SELECT COUNT(*)::integer AS count FROM publications",
     );
@@ -141,19 +146,31 @@ describe("fixture-backed evidence pipeline", () => {
       [prepared.extractionRunId],
     );
     await expect(
-      publishApprovedStatement(
+      performEditorialAction(
         db,
-        healthcare.rows[0].id,
-        "2026-07-24T16:16:00.000Z",
+        {
+          action: "published",
+          statementId: healthcare.rows[0].id,
+          requestId: "test:pipeline:healthcare:republish",
+          operatorRef: "fixture:test-publisher",
+          expectedPhase: "published",
+        },
+        () => "2026-07-24T16:16:00.000Z",
       ),
-    ).resolves.toMatchObject({ publicationId: expect.any(String) });
+    ).rejects.toThrow(EditorialTransitionConflictError);
     await expect(
-      publishApprovedStatement(
+      performEditorialAction(
         db,
-        "missing-statement",
-        "2026-07-24T16:17:00.000Z",
+        {
+          action: "published",
+          statementId: "missing-statement",
+          requestId: "test:pipeline:missing:publish",
+          operatorRef: "fixture:test-publisher",
+          expectedPhase: "approved_unpublished",
+        },
+        () => "2026-07-24T16:17:00.000Z",
       ),
-    ).rejects.toThrow(PublicationPolicyError);
+    ).rejects.toThrow(EditorialRecordNotFoundError);
   });
 
   it("rejects mismatched extraction evidence without downstream statements", async () => {
@@ -299,7 +316,7 @@ describe("fixture-backed evidence pipeline", () => {
     ).rejects.toThrow(ExtractionSchemaError);
   });
 
-  it("revalidates immutable evidence before approval and publication", async () => {
+  it("revalidates immutable evidence before approval", async () => {
     const prepared = await prepareDemoDatabase(db);
     const roads = await db.query<{ id: string }>(
       `SELECT id FROM statements
@@ -307,15 +324,33 @@ describe("fixture-backed evidence pipeline", () => {
           AND extraction_item_id = 'statement-roads'`,
       [prepared.extractionRunId],
     );
+    await performEditorialAction(
+      db,
+      {
+        action: "reviewed_ready",
+        statementId: roads.rows[0].id,
+        requestId: "test:pipeline:roads:review",
+        operatorRef: "fixture:test-editor",
+        expectedPhase: "needs_review",
+      },
+      () => "2026-07-24T17:19:00.000Z",
+    );
     await db.query(
       "UPDATE evidence SET quote = 'Fabricated evidence' WHERE statement_id = $1",
       [roads.rows[0].id],
     );
     await expect(
-      approveAndPublishStatement(
+      performEditorialAction(
         db,
-        roads.rows[0].id,
-        "2026-07-24T17:20:00.000Z",
+        {
+          action: "approved",
+          statementId: roads.rows[0].id,
+          requestId: "test:pipeline:roads:approve",
+          operatorRef: "fixture:test-editor",
+          expectedPhase: "ready_to_approve",
+          reason: "Evidence must remain unchanged.",
+        },
+        () => "2026-07-24T17:20:00.000Z",
       ),
     ).rejects.toThrow(PublicationPolicyError);
     const status = await db.query<{ status: string }>(
@@ -353,7 +388,13 @@ describe("fixture-backed evidence pipeline", () => {
       }),
     ).resolves.toMatchObject({
       extractionRunId: prepared.extractionRunId,
-      statementIds: [expect.any(String), expect.any(String)],
+      statementIds: [
+        expect.any(String),
+        expect.any(String),
+        expect.any(String),
+        expect.any(String),
+        expect.any(String),
+      ],
       abstentionCount: 1,
     });
 

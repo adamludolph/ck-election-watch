@@ -1,0 +1,25 @@
+{
+  "date": "2026-07-26",
+  "window": "milestone-2",
+  "base_commit": "cb2f1dda51a8eee56aa211a8241f3d7b1314004d",
+  "implementation_commit": "23e2d255b892098b1a00a08ab51d81d0222ddc05",
+  "merge_commit": "e9543261b2cfbb824a09e7d5fb5b0f0889daac71",
+  "metrics": {
+    "features_shipped": 1,
+    "implementation_commits": 1,
+    "files_changed": 26,
+    "insertions": 4630,
+    "deletions": 358,
+    "test_insertions": 1298,
+    "test_insertion_ratio": 0.28,
+    "test_files_after_merge": 8
+  },
+  "durable_lessons": [
+    "Keep Milestone 3 fixture-backed and deterministic; no live data or network acquisition belongs in the verification path.",
+    "Represent editorial decisions as append-only events with explicit conflicts and terminal outcomes rather than overwriting prior state.",
+    "Preserve the public-read privacy boundary: construct public output from an explicitly publishable projection, never from mutable review tables.",
+    "Use ordered, digest-checked forward-only migrations and prove upgrade behavior from the merged Milestone 2 schema.",
+    "Re-enforce candidacy, attribution, evidence, and source ownership at every state-changing boundary instead of trusting an earlier stage.",
+    "Keep the milestone contained: Milestone 2 touched 26 files and added 4630 lines, including a 1220-line design record, so Milestone 3 should prefer one operator queue and one complete state lifecycle over adjacent search or issue-browsing work."
+  ]
+}

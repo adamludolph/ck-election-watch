@@ -122,9 +122,10 @@ export async function getPublicCandidateRecord(
     payload_sha256: string;
   }>(
     `SELECT payload::text AS payload, payload_sha256
-       FROM publications
-      WHERE withdrawn_at IS NULL
+       FROM active_publication_payloads
+      WHERE candidacy_slug = $1
       ORDER BY published_at`,
+    [candidacySlug],
   );
   const publications = publicationRows.rows
     .map((publication) =>
@@ -132,21 +133,11 @@ export async function getPublicCandidateRecord(
         JSON.parse(publication.payload),
         publication.payload_sha256,
       ),
-    )
-    .filter((payload) => payload.candidacySlug === candidacySlug);
+    );
 
   const issueRows = await db.query<{ slug: string; label: string }>(
     "SELECT slug, label FROM issues ORDER BY label",
   );
-  const draftRows = await db.query<{ slug: string }>(
-    `SELECT DISTINCT i.slug
-       FROM statements st
-       JOIN statement_issues si ON si.statement_id = st.id
-       JOIN issues i ON i.id = si.issue_id
-      WHERE st.candidacy_id = $1 AND st.status = 'draft'`,
-    [row.candidacy_id],
-  );
-  const draftIssues = new Set(draftRows.rows.map((issue) => issue.slug));
   const issues = issueRows.rows.map((issue) => {
     const statements = publications.filter((publication) =>
       publication.issues.some(
@@ -158,7 +149,6 @@ export async function getPublicCandidateRecord(
       statements,
       absenceMessage: publicAbsenceMessage({
         coverageComplete,
-        hasDraft: draftIssues.has(issue.slug),
         hasActivePublication: statements.length > 0,
       }),
     };

@@ -86,3 +86,42 @@ export class MigrationIntegrityError extends PipelineError {
     super("migration_integrity", message);
   }
 }
+
+export class EditorialInputError extends PipelineError {
+  constructor(message: string, cause?: unknown) {
+    super("editorial_input", message, { cause });
+  }
+}
+
+export class EditorialRecordNotFoundError extends PipelineError {
+  constructor(message = "Editorial record was not found.") {
+    super("editorial_not_found", message);
+  }
+}
+
+export class EditorialTransitionConflictError extends PipelineError {
+  constructor(message: string) {
+    super("editorial_transition_conflict", message);
+  }
+}
+
+export class EditorialReplayConflictError extends PipelineError {
+  constructor(message: string) {
+    super("editorial_replay_conflict", message);
+  }
+}
+
+export class EditorialSubjectChangedError extends PipelineError {
+  constructor(message: string) {
+    super("editorial_subject_changed", message);
+  }
+}
+
+export class LocalReviewDisabledError extends PipelineError {
+  constructor() {
+    super(
+      "local_review_disabled",
+      "The local editorial review workspace is disabled.",
+    );
+  }
+}

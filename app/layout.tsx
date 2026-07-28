@@ -12,8 +12,11 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" data-scroll-behavior="smooth">
       <body>
+        <a className="skip-link" href="#main-content">
+          Skip to main content
+        </a>
         <header className="site-header">
           <Link className="brand" href="/">
             <span className="brand-mark" aria-hidden="true">

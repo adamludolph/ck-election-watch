@@ -9,23 +9,36 @@ import {
 import { captureWebsiteFixture } from "@/lib/ingest/capture";
 import { importOfficialRosterFixture } from "@/lib/ingest/candidates";
 import { normalizeSnapshot } from "@/lib/ingest/normalize";
-import { approveAndPublishStatement } from "@/lib/publication/publish";
+import { performEditorialAction } from "@/lib/editorial/workflow";
 import { completeFixtureCoverage } from "@/lib/review/coverage";
 
 const fixturePath = (...parts: string[]) =>
   path.join(process.cwd(), "tests", "fixtures", ...parts);
 
-export async function prepareDemoDatabase(db: PGlite): Promise<{
+type PreparedDemo = {
   candidacyId: string;
   snapshotId: string;
   extractionRunId: string;
-  publicationId: string;
   researchRunId: string;
   officialImportRunId: string;
   discoveryRunId: string;
   discoveredSourceId: string;
   sourceId: string;
-}> {
+  statementIds: Record<string, string>;
+};
+
+export function prepareDemoDatabase(
+  db: PGlite,
+  options: { seedEditorialWorkflow: false },
+): Promise<PreparedDemo & { publicationId: null }>;
+export function prepareDemoDatabase(
+  db: PGlite,
+  options?: { seedEditorialWorkflow?: true },
+): Promise<PreparedDemo & { publicationId: string }>;
+export async function prepareDemoDatabase(
+  db: PGlite,
+  options: { seedEditorialWorkflow?: boolean } = {},
+): Promise<PreparedDemo & { publicationId: string | null }> {
   const [candidateBytes, discoveryBytes, htmlBytes, extractionJson, prompt] =
     await Promise.all([
       readFile(fixturePath("official-candidates.json")),
@@ -87,20 +100,104 @@ export async function prepareDemoDatabase(db: PGlite): Promise<{
     rawResult: JSON.parse(extractionJson),
     now: "2026-07-24T16:07:00.000Z",
   });
-  const healthcare = await db.query<{ id: string }>(
-    `SELECT id FROM statements
-      WHERE extraction_run_id = $1
-        AND extraction_item_id = 'statement-healthcare'`,
+  const statements = await db.query<{
+    id: string;
+    extraction_item_id: string;
+  }>(
+    `SELECT id, extraction_item_id FROM statements
+      WHERE extraction_run_id = $1`,
     [extraction.extractionRunId],
   );
-  if (!healthcare.rows[0]) {
-    throw new Error("Healthcare statement was not created.");
-  }
-  const publication = await approveAndPublishStatement(
-    db,
-    healthcare.rows[0].id,
-    "2026-07-24T16:10:00.000Z",
+  const statementIds = Object.fromEntries(
+    statements.rows.map((statement) => [
+      statement.extraction_item_id,
+      statement.id,
+    ]),
   );
+  const healthcareId = statementIds["statement-healthcare"];
+  const clinicReportId = statementIds["statement-clinic-reports"];
+  const roadTrackerId = statementIds["statement-road-tracker"];
+  if (!healthcareId || !clinicReportId || !roadTrackerId) {
+    throw new Error("Editorial fixture statements were not created.");
+  }
+  let publication: { publicationId: string } | null = null;
+  if (options.seedEditorialWorkflow !== false) {
+    const act = (
+      input: Parameters<typeof performEditorialAction>[1],
+      now: string,
+    ) => performEditorialAction(db, input, () => now);
+    await act(
+      {
+        action: "reviewed_ready",
+        statementId: healthcareId,
+        requestId: "fixture:healthcare:reviewed-ready",
+        operatorRef: "fixture:editor-one",
+        expectedPhase: "needs_review",
+        note: "PRIVATE_SENTINEL_HEALTHCARE_REVIEW",
+      },
+      "2026-07-24T16:08:00.000Z",
+    );
+    await act(
+      {
+        action: "approved",
+        statementId: healthcareId,
+        requestId: "fixture:healthcare:approved",
+        operatorRef: "fixture:editor-one",
+        expectedPhase: "ready_to_approve",
+        reason: "PRIVATE_SENTINEL_HEALTHCARE_APPROVAL",
+      },
+      "2026-07-24T16:09:00.000Z",
+    );
+    publication = await act(
+      {
+        action: "published",
+        statementId: healthcareId,
+        requestId: "fixture:healthcare:published",
+        operatorRef: "fixture:publisher-one",
+        expectedPhase: "approved_unpublished",
+        reason: "PRIVATE_SENTINEL_HEALTHCARE_PUBLICATION",
+      },
+      "2026-07-24T16:10:00.000Z",
+    ).then((result) => {
+      if (!result.publicationId) {
+        throw new Error("Published fixture did not return a publication.");
+      }
+      return { publicationId: result.publicationId };
+    });
+    await act(
+      {
+        action: "reviewed_ready",
+        statementId: clinicReportId,
+        requestId: "fixture:clinic:reviewed-ready",
+        operatorRef: "fixture:editor-two",
+        expectedPhase: "needs_review",
+        note: "PRIVATE_SENTINEL_CLINIC_REVIEW",
+      },
+      "2026-07-24T16:08:30.000Z",
+    );
+    await act(
+      {
+        action: "reviewed_ready",
+        statementId: roadTrackerId,
+        requestId: "fixture:tracker:reviewed-ready",
+        operatorRef: "fixture:editor-two",
+        expectedPhase: "needs_review",
+        note: "PRIVATE_SENTINEL_TRACKER_REVIEW",
+      },
+      "2026-07-24T16:08:40.000Z",
+    );
+    await act(
+      {
+        action: "approved",
+        statementId: roadTrackerId,
+        requestId: "fixture:tracker:approved",
+        operatorRef: "fixture:editor-two",
+        expectedPhase: "ready_to_approve",
+        reason: "PRIVATE_SENTINEL_TRACKER_APPROVAL",
+      },
+      "2026-07-24T16:09:40.000Z",
+    );
+  }
   const coverage = await completeFixtureCoverage(db, {
     candidacyId,
     sourceId: capture.sourceId,
@@ -114,11 +211,12 @@ export async function prepareDemoDatabase(db: PGlite): Promise<{
     candidacyId,
     snapshotId: capture.snapshotId,
     extractionRunId: extraction.extractionRunId,
-    publicationId: publication.publicationId,
+    publicationId: publication?.publicationId ?? null,
     researchRunId: coverage.researchRunId,
     officialImportRunId: officialImport.officialImportRunId,
     discoveryRunId: discovery.discoveryRunId,
     discoveredSourceId,
     sourceId: accepted.sourceId,
+    statementIds,
   };
 }

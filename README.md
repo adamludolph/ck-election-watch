@@ -22,9 +22,12 @@ Open:
 
 - `http://localhost:3000/`
 - `http://localhost:3000/candidates/demo-candidate`
+- `http://localhost:3000/review`
 
 The demo database is file-backed under `.data/` and can be rebuilt
-deterministically from the committed fixtures.
+deterministically from the committed fixtures. The review workspace is a
+development-only fixture tool: it returns 404 and rejects its server actions
+before database access when `NODE_ENV=production`.
 
 ## Verify
 
@@ -63,9 +66,18 @@ npm run test:e2e
 - structured extraction must bind an exact quote and UTF-16 offsets to a block;
 - source ownership and attribution policy are enforced again at publication;
 - ambiguous material is retained as an abstention, not published;
-- an approved statement becomes a canonical, hash-verified publication payload;
+- editorial review, approval, rejection, publication, and unpublication are
+  separate guarded transitions with append-only event history;
+- browser-submitted operator identity is ignored in favor of a server-owned
+  synthetic fixture identity;
+- publishing requires the current evidence subject digest to match the immutable
+  approval event, then freezes a canonical, hash-verified publication snapshot;
+- active public output is selected only from immutable publish/unpublish events,
+  while publication payload identity, content, digest, and publish time are
+  protected against update or deletion;
 - drafts, raw captures, raw extraction output, official import payloads, and
-  discovery evidence are absent from public queries;
+  discovery evidence, private review notes, operator references, and editorial
+  history are absent from public queries;
 - completed, URL-bound source coverage gates the stronger “No explicit public
   statement found” wording;
 - later official candidacy-status observations are retained and reflected in
@@ -78,5 +90,6 @@ See [VISION.md](./VISION.md) for the evidence policy and
 ## Deliberately absent
 
 There is no live Chatham-Kent import, crawler, social adapter, live AI call,
-review UI, search, authentication, deployment, or public publication in this
-slice.
+search, authentication, deployment, production review access, or public
+publication in this slice. The included review UI operates only on deterministic
+local fixture data.

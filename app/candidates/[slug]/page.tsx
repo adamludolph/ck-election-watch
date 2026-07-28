@@ -27,7 +27,7 @@ export default async function CandidatePage({
   }
 
   return (
-    <main className="candidate-page">
+    <main id="main-content" className="candidate-page" tabIndex={-1}>
       <section className="candidate-hero">
         <div className="eyebrow">
           {candidate.municipalityName} · {candidate.electionName}
