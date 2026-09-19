@@ -80,3 +80,11 @@ See [VISION.md](./VISION.md) for the evidence policy and
 There is no live Chatham-Kent import, crawler, social adapter, live AI call,
 review UI, search, authentication, deployment, or public publication in this
 slice.
+
+## License
+
+The project software is licensed under the MIT License; see `LICENSE`.
+
+Third-party source material, campaign content, archived webpages, public records,
+and other externally sourced data are not relicensed by this repository and
+remain subject to their original rights, terms, and applicable law.
